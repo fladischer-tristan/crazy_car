@@ -1,13 +1,25 @@
+#include <Arduino.h>
+ 
 void setup() {
-  Serial.begin(9600);    // UART0 zum debuggen
-  Serial3.begin(9600);   // UART3, RX=15, TX=14 laut Schaltplan
-  Serial.println("Arduino gestartet, warte auf Daten...");
+  Serial.begin(115200);
+  delay(100);
+  Serial3.begin(115200);
+  delay(100);
 }
-
-// Versuche Daten vom ESP32S3 zu erhalten, dann über UART ausgeben
+ 
+uint32_t lastSerialPrint = 0;
+uint16_t counter=0;
 void loop() {
-  if (Serial3.available()) {
-    int b = Serial3.read();
-    Serial.write(b);     // USB Monitor
+  if (millis() -lastSerialPrint > 1000 ) {
+    Serial3.print("Hello World from arduino Mega:");
+    Serial3.println(counter);
+    Serial.println("*");
+    counter++;
+    lastSerialPrint = millis();
   }
+ 
+  while (Serial3.available()) {
+    char c = Serial3.read();
+    Serial.print(c);
+  }    
 }
