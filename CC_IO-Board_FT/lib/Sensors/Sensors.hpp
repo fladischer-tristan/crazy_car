@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <Wire.h>
+#include "Types.hpp"
 
 // IR sensors and battery sensor
 constexpr uint8_t LEFTSENSOR_PIN =  A1;
@@ -24,7 +25,8 @@ constexpr int ADC_MAX = 1023; // (2^10)-1 ... 1023
 constexpr int PULSE_DISTANCE = 5; // physical distance between 2 hallsensor pulses
 
 void sensorInit();
-float readBatteryVoltage();
+void readAllSensorData(SensorData& sensorData);
+void readBatteryVoltage(float& batteryVoltage);
 float adcToVoltage(int adc);
 float calculateVelocity(int16_t pulseCount, const unsigned long sampleRate);
 void readGyroSensor(float& ax, float& ay, float& az, float& gx, float& gy, float& gz);

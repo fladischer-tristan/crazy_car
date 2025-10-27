@@ -14,8 +14,15 @@ void sendSensorDataToEsp(SensorData* data) {
         return;
     }
 
+    /*
+    * NOTE
+    * Currently, we do not need SoF or EoF bytes for
+    * each UART packet, since the packages will be
+    * transmitted over hamming-code.
+    */
+
     // transmitt each primitive in binary format
-    sendValue(&data->direction);
+    sendValue(&data->packetNumber);
     sendValue(&data->velocity);
     sendValue(&data->batteryVoltage);
     sendValue(&data->leftDistance);

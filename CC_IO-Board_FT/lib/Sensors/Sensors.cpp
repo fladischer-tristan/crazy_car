@@ -72,6 +72,23 @@ void readDistanceSensors(float& leftDistance, float& middleDistance, float& righ
 }
 
 // reads and returns battery voltage
-float readBatteryVoltage() {
-    return adcToVoltage(analogRead(VBAT_PIN));
+void readBatteryVoltage(float& batterVoltage) {
+    batterVoltage = adcToVoltage(analogRead(VBAT_PIN));
+}
+
+void readAllSensorData(SensorData& sensorData) {
+    readGyroSensor(
+        sensorData.ax,
+        sensorData.ay,
+        sensorData.az,
+        sensorData.gx,
+        sensorData.gy,
+        sensorData.gz
+    );
+    readDistanceSensors(
+        sensorData.leftDistance,
+        sensorData.middleDistance,
+        sensorData.rightDistance
+    );
+    readBatteryVoltage(sensorData.batteryVoltage);
 }

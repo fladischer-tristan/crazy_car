@@ -4,7 +4,7 @@
 
 // struct for storing all sensor-data in compact packet (good for Serial)
 struct SensorData {
-    uint8_t direction = 0;
+    uint32_t packetNumber = 0;
     float velocity = 0.0F;
     float batteryVoltage = 0.0F;
     float leftDistance = 0.0F, middleDistance = 0.0F, rightDistance = 0.0F;
