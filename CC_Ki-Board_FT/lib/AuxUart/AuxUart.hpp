@@ -1,15 +1,18 @@
 #pragma once
 
 #include <Arduino.h>
-#include "Sensors.hpp"
 #include "Types.hpp"
 
-constexpr unsigned long BAUD = 115200; // UART3 Baudrate
+constexpr uint8_t ESP_RX = D6;
+constexpr uint8_t ESP_TX = D7;
+constexpr ulong BAUD = 115200;
 constexpr uint8_t START_OF_COMM_BYTE = 0xAA;
 constexpr uint8_t END_OF_COMM_BYTE = 0x55;
 
-void uart3Init();
-void sendSensorDataToEsp(SensorData* data);
+extern HardwareSerial auxUart;
+
+void auxUartInit();
+void sendMotorDataToMega(SensorData* data);
 
 /**
  * @brief takes pointer to a sensor-value, casts it to
@@ -20,7 +23,7 @@ void sendSensorDataToEsp(SensorData* data);
  * @param value - pointer to sensor-value (can be of any pointer type)
  */
 template<typename T>
-void sendValue(T* value) {
+void sendValue(T *value) {
     uint8_t* pValue = reinterpret_cast<uint8_t*>(value); // casting to byte pointer
-    Serial3.write(pValue, sizeof(T)); // send over UART3
+    auxUart.write(pValue, sizeof(T)); // send over UART3
 }

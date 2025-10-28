@@ -4,7 +4,7 @@
 #include "Sensors.hpp"
 #include "Types.hpp"
 
-constexpr uint16_t SAMPLE_RATE = 40; // sensor sample rate in ms - 40 should be fast enough
+constexpr uint16_t SAMPLE_RATE = 100; // sensor sample rate in ms - 40 should be fast enough
 const byte SENSOR_FRAME_LENGTH = sizeof(SensorData);
 
 // physical buttons - negative logic
@@ -29,8 +29,7 @@ Servo esc; // electronic speed control (with brushless dc motor)
 
 // Protyping ISRs
 void onHallPulse();
-void onStartButton();
-void onStopButton();
+void sensorDataDebugPrint(SensorData& sensorData);
 
 enum RunMode {
 	START,
@@ -48,6 +47,9 @@ void setup() {
 	esc.attach(ESC_PIN);
 
 	attachInterrupt(digitalPinToInterrupt(HALL_SENSOR_1_PIN), onHallPulse, RISING);
+
+	while (Serial3.available()) Serial3.read(); // CLEAR RX BUFFER
+  	Serial.println("UART buffer cleared");
 }
 
 void loop() {
@@ -63,6 +65,8 @@ void loop() {
 		if (digitalRead(STOPBUTTON) == LOW) {
 			runMode = STOP;
 			Serial3.write(END_OF_COMM_BYTE); // EndOfCommunication ('E')
+		
+			while (Serial3.available()) Serial3.read(); // clearing UART buffer
 		}
 	}
 
@@ -86,6 +90,9 @@ void loop() {
 			// 3. Feed MotorPulses to our Motors
 			SensorData motorData;
 			Serial3.readBytes(reinterpret_cast<byte*>(&motorData), sizeof(SensorData));
+
+			Serial.print("sizeof(SensorData): ");
+			Serial.println((unsigned long)sizeof(motorData));
 
 			uint32_t servoPulseUS = motorData.servoPulse;
 			uint32_t escPulseUS = motorData.escPulse;
@@ -117,6 +124,7 @@ void loop() {
 			sensorData.escPulse = escPulseUS; // esc pulse from esp32
 
 			sendSensorDataToEsp(&sensorData); // send the whole thing to ESP32
+			delayMicroseconds(500);
 
 			// measure time (for DEBUG purpose)
 			unsigned long elapsedTime = millis() - startTime;
@@ -145,7 +153,7 @@ void onHallPulse() {
 // Printing the contents of a SensorData struct to the Serial for DEBUG purpose
 void sensorDataDebugPrint(SensorData& sensorData) {
 	Serial.print("sizeof(SensorData): ");
-	Serial.println((unsigned long)sizeof(SensorData));
+	Serial.println((unsigned long)sizeof(sensorData));
 	Serial.print(F("id: ")); Serial.print(sensorData.packetNumber);
 	Serial.print(F(" vel: ")); Serial.print(sensorData.velocity, 2);
 	Serial.print(F(" bat: ")); Serial.print(sensorData.batteryVoltage, 2);
