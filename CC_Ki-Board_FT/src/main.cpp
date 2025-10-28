@@ -14,20 +14,23 @@
 #define ESP_ESC_PWM_IN D9
 #define ESP_S1 D8
 
+
+const char* ssid = "ESP32_AP_TEST";
+const char* password = "12345678";
+
 const byte SENSOR_FRAME_LENGTH = sizeof(SensorData); // Length of incoming sensor frame (coming from auxUart)
 
-// Wifi
-const char ssid[] = "test";
-const char password[] = "12345678";
 WiFiServer server(3333);
+WiFiClient client(3333);
 
 void sensorDataDebugPrint(SensorData& sensorData);
  
 void setup() {
+	delay(3000);
 	Serial.begin(115200); // DEBUG Serial
-	delay(100);
+	delay(1000);
 	auxUartInit();
-	delay(100);
+	delay(1000);
 
 	pinMode(ESP_STEERING_PWM_IN, INPUT);
 	pinMode(ESP_ESC_PWM_IN, INPUT);
@@ -37,16 +40,52 @@ void setup() {
 	while (auxUart.available()) auxUart.read(); // CLEAR RX BUFFER
   	Serial.println("UART buffer cleared");
 
-	// // WIFI connection for sending parsed sensorData (to laptop/pc)
+	Serial.println("Starting Access Point...");
+	WiFi.mode(WIFI_AP);
+	WiFi.softAP(ssid, password);
+
+	IPAddress IP = WiFi.softAPIP();
+	Serial.print("AP started! IP address: ");
+	Serial.println(IP);
+
+	Serial.print("SSID: ");
+	Serial.println(ssid);
+	Serial.print("Password: ");
+	Serial.println(password);
+
+	// WIFI
+	// Serial.println("Scanning for networks...");
+	// int n = WiFi.scanNetworks();
+	// if (n == 0) {
+	// 	Serial.println("No networks found");
+	// } else {
+	// 	Serial.print(n);
+	// 	Serial.println(" networks found:");
+	// 	for (int i = 0; i < n; ++i) {
+	// 		Serial.print(i + 1);
+	// 		Serial.print(": ");
+	// 		Serial.print(WiFi.SSID(i));
+	// 		Serial.print(" (");
+	// 		Serial.print(WiFi.RSSI(i));
+	// 		Serial.print(" dBm) ");
+	// 		Serial.println((WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? "Open" : "Secured");
+	// 		delay(10);
+	// 	}
+	// }
+	// WiFi.disconnect(true, true);  // clear old credentials and reset WiFi hardware
+	// delay(1000);
+	// WiFi.mode(WIFI_STA);
 	// WiFi.begin(ssid, password);
+	// WiFi.printDiag(Serial);
 	// while (WiFi.status() != WL_CONNECTED) {
-	// 	delay(500);
-	// 	Serial.print(".");
-	// } // Note: not able to connect at the moment. Reason unknown, worked already
+	// delay(500);
+	// Serial.print(".");
+	// }
 	// Serial.println("Connected!");
-	// Serial.print("IP: "); Serial.println(WiFi.localIP());
-	// server.begin();
+	// Serial.print("IP: ");
+	// Serial.println(WiFi.localIP());
 }
+
 /*
 * 1. Wait for START_OF_COMM_BYTE
 * 2. Read Motor Pulses and send them to ESP
@@ -54,7 +93,12 @@ void setup() {
 * 4. Send struct away over WiFi (ignore for now, just print to Serial)
 */
 void loop() {
-	//Serial.println("Hello from Loop");
+	static long lastTimeDebug = millis();
+	if (millis() - lastTimeDebug >= 500) {
+		Serial.println("Hello from Loop");
+		lastTimeDebug = millis();
+	}
+	
 	// 1. Wait for START_OF_COMM_BYTE
 	if (auxUart.available() && auxUart.peek() == START_OF_COMM_BYTE) {
 		while (auxUart.available()) auxUart.read();
@@ -73,6 +117,11 @@ void loop() {
 			unsigned long startTime = millis();
 			unsigned long servoPulseUS = pulseIn(ESP_STEERING_PWM_IN, HIGH, 25000); // 25ms max delay
 			unsigned long escPulseUS = pulseIn(ESP_ESC_PWM_IN, HIGH, 25000);
+
+			Serial.print("escPulse: ");
+			Serial.println(escPulseUS);
+			Serial.print("servoPulse: ");
+			Serial.println(servoPulseUS);
 
 			SensorData motorData;
 			motorData.escPulse = escPulseUS;

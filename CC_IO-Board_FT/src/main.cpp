@@ -4,7 +4,7 @@
 #include "Sensors.hpp"
 #include "Types.hpp"
 
-constexpr uint16_t SAMPLE_RATE = 100; // sensor sample rate in ms - 40 should be fast enough
+constexpr uint16_t SAMPLE_RATE = 65; // sensor sample rate in ms - 40 should be fast enough
 const byte SENSOR_FRAME_LENGTH = sizeof(SensorData);
 
 // physical buttons - negative logic
@@ -90,6 +90,7 @@ void loop() {
 			// 3. Feed MotorPulses to our Motors
 			SensorData motorData;
 			Serial3.readBytes(reinterpret_cast<byte*>(&motorData), sizeof(SensorData));
+			while (Serial3.available()) Serial3.read();
 
 			Serial.print("sizeof(SensorData): ");
 			Serial.println((unsigned long)sizeof(motorData));
