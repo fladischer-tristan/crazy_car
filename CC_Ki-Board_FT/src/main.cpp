@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include "esp_wifi.h"
 #include "Types.hpp"
 #include "AuxUart.hpp"
 
@@ -14,76 +15,67 @@
 #define ESP_ESC_PWM_IN D9
 #define ESP_S1 D8
 
+// WiFi ssid and pwd
+const char* SSID = "HUAWEI-E5180-E375";
+const char* PASS = "Y271HJ02FFT";
 
-const char* ssid = "ESP32_AP_TEST";
-const char* password = "12345678";
+// TCP Server details
+const char* host = "192.168.8.106";  // IP deines PCs im selben WLAN
+const uint16_t port = 5000;          // Port, den dein Server abhört
 
-const byte SENSOR_FRAME_LENGTH = sizeof(SensorData); // Length of incoming sensor frame (coming from auxUart)
+// length of UART packet
+const byte SENSOR_FRAME_LENGTH = sizeof(SensorData);
 
-WiFiServer server(3333);
-WiFiClient client(3333);
+WiFiClient client;
 
+// Prototyping functions
 void sensorDataDebugPrint(SensorData& sensorData);
- 
-void setup() {
-	delay(3000);
-	Serial.begin(115200); // DEBUG Serial
-	delay(1000);
-	auxUartInit();
-	delay(1000);
 
+void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  	switch (event) {
+    	case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+      		Serial.printf("[WiFi] Disconnected, reason=%d\n", info.wifi_sta_disconnected.reason);
+      		break;
+    	case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+      		Serial.printf("[WiFi] IP: %s\n", WiFi.localIP().toString().c_str());
+      		break;
+    	default:
+      		break;
+  }
+}
+
+void setup() {
+	delay(3000); // ESP Serial needs the delay to actually work in the setup
+	Serial.begin(115200); // DEBUG Serial
+	delay(100);
+	auxUartInit(); // Serial to Arduino Mega
+	delay(100);
+
+	// RC-Receiver pins
 	pinMode(ESP_STEERING_PWM_IN, INPUT);
 	pinMode(ESP_ESC_PWM_IN, INPUT);
 
-	Serial.println("Hello from Setup");
+	// small wifi test
+	WiFi.begin(SSID, PASS);
+	Serial.print("Verbinde mit WLAN...");
+	while (WiFi.status() != WL_CONNECTED) {
+		delay(500);
+		Serial.print(".");
+	}
+	Serial.println("\n[WiFi] Verbunden!");
+	Serial.println(WiFi.localIP());
 
-	while (auxUart.available()) auxUart.read(); // CLEAR RX BUFFER
-  	Serial.println("UART buffer cleared");
+	Serial.print("Verbinde mit Server ");
+	Serial.print(host);
+	Serial.print(":");
+	Serial.println(port);
 
-	Serial.println("Starting Access Point...");
-	WiFi.mode(WIFI_AP);
-	WiFi.softAP(ssid, password);
-
-	IPAddress IP = WiFi.softAPIP();
-	Serial.print("AP started! IP address: ");
-	Serial.println(IP);
-
-	Serial.print("SSID: ");
-	Serial.println(ssid);
-	Serial.print("Password: ");
-	Serial.println(password);
-
-	// WIFI
-	// Serial.println("Scanning for networks...");
-	// int n = WiFi.scanNetworks();
-	// if (n == 0) {
-	// 	Serial.println("No networks found");
-	// } else {
-	// 	Serial.print(n);
-	// 	Serial.println(" networks found:");
-	// 	for (int i = 0; i < n; ++i) {
-	// 		Serial.print(i + 1);
-	// 		Serial.print(": ");
-	// 		Serial.print(WiFi.SSID(i));
-	// 		Serial.print(" (");
-	// 		Serial.print(WiFi.RSSI(i));
-	// 		Serial.print(" dBm) ");
-	// 		Serial.println((WiFi.encryptionType(i) == WIFI_AUTH_OPEN) ? "Open" : "Secured");
-	// 		delay(10);
-	// 	}
-	// }
-	// WiFi.disconnect(true, true);  // clear old credentials and reset WiFi hardware
-	// delay(1000);
-	// WiFi.mode(WIFI_STA);
-	// WiFi.begin(ssid, password);
-	// WiFi.printDiag(Serial);
-	// while (WiFi.status() != WL_CONNECTED) {
-	// delay(500);
-	// Serial.print(".");
-	// }
-	// Serial.println("Connected!");
-	// Serial.print("IP: ");
-	// Serial.println(WiFi.localIP());
+	if (client.connect(host, port)) {
+		Serial.println("✅ Verbindung erfolgreich!");
+		client.println("Hallo vom ESP32S3!");
+	} else {
+		Serial.println("❌ Verbindung fehlgeschlagen!");
+	}
 }
 
 /*
@@ -94,8 +86,21 @@ void setup() {
 */
 void loop() {
 	static long lastTimeDebug = millis();
-	if (millis() - lastTimeDebug >= 500) {
+	if (millis() - lastTimeDebug >= 50) {
 		Serial.println("Hello from Loop");
+
+		// Send some debug data to TCP Server
+		if (client.connected()) {
+			client.print("ServoPulse(us): ");
+			client.println(pulseIn(ESP_STEERING_PWM_IN, HIGH, 25000));
+			client.print("EscPulse(us): ");
+			client.println(pulseIn(ESP_ESC_PWM_IN, HIGH, 25000));
+
+		} else {
+			Serial.println("Client getrennt, versuche Reconnect...");
+			client.connect(host, port);
+		}
+
 		lastTimeDebug = millis();
 	}
 	
@@ -138,8 +143,7 @@ void loop() {
 
 			// 3. Wait for SensorData
 			while (auxUart.available() < SENSOR_FRAME_LENGTH) {
-				// Serial.print("auxUart.available():");
-				// Serial.println(auxUart.available());
+				// TODO this loop is not really working for the end of comm, it will be stuck here
 			}
 
 			SensorData sensorData;
@@ -148,17 +152,6 @@ void loop() {
 
 			// 4. Send data to PC / print to terminal for now
 			sensorDataDebugPrint(sensorData);
-
-			// static WiFiClient client;
-			// if (!client || !client.connected()) {
-			// 	client = server.available();
-			// }
-			// if (client && client.connected()) {
-			// 	client.printf(
-			// 	// need to send sensorData struct here
-			// 	"foo"
-			// 	);
-			// }
 		}
 	}
 }
