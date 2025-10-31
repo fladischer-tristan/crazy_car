@@ -6,13 +6,14 @@
 constexpr uint8_t ESP_RX = D6;
 constexpr uint8_t ESP_TX = D7;
 constexpr ulong BAUD = 115200;
-constexpr uint8_t START_OF_COMM_BYTE = 0xAA;
-constexpr uint8_t END_OF_COMM_BYTE = 0x55;
+constexpr uint8_t START_OF_COMM_BYTE = 0x53; // 'S'
+constexpr uint8_t END_OF_COMM_BYTE = 0x45; // 'E'
 
 extern HardwareSerial auxUart;
 
 void auxUartInit();
-void sendMotorDataToMega(SensorData* data);
+void sendMotorDataToMega(SensorData *data);
+bool readSensorFrame(SensorData &out);
 
 /**
  * @brief takes pointer to a sensor-value, casts it to

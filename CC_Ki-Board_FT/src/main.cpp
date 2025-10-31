@@ -1,8 +1,22 @@
+/**
+ * @file main.cpp
+ * @author Tristan Fladischer
+ * @brief ESP32S3 src code for CrazyCar.
+ * @version 0.1
+ * @date 2025-10-31
+ * 
+ * @copyright Copyright (c) 2025
+ * 
+ */
+
 #include <Arduino.h>
 #include <WiFi.h>
 #include "esp_wifi.h"
 #include "Types.hpp"
 #include "AuxUart.hpp"
+#include "secrets.hpp"
+#include "WifiUtils.hpp"
+#include "Debug.hpp"
 
 // ESP32S3 Pinout
 #define ESP_S2 D0
@@ -15,172 +29,185 @@
 #define ESP_ESC_PWM_IN D9
 #define ESP_S1 D8
 
-// WiFi ssid and pwd
-const char* SSID = "HUAWEI-E5180-E375";
-const char* PASS = "Y271HJ02FFT";
-
 // TCP Server details
-const char* host = "192.168.8.106";  // IP deines PCs im selben WLAN
-const uint16_t port = 5000;          // Port, den dein Server abhört
+const char* HOST = "192.168.8.106"; 
+const uint16_t PORT = 5000;
 
 // length of UART packet
 const byte SENSOR_FRAME_LENGTH = sizeof(SensorData);
 
-WiFiClient client;
+// Queue and TCP task
+QueueHandle_t packetQueue;
 
-// Prototyping functions
-void sensorDataDebugPrint(SensorData& sensorData);
+// enums for our control logic (2 state machines)
+enum CommState {WAIT_FOR_START, RUNNING};
+enum CycleState {SEND_MOTOR_PULSES, READ_SENSOR_DATA, APPEND_DATA_TO_QUEUE};
 
-void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
-  	switch (event) {
-    	case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
-      		Serial.printf("[WiFi] Disconnected, reason=%d\n", info.wifi_sta_disconnected.reason);
-      		break;
-    	case ARDUINO_EVENT_WIFI_STA_GOT_IP:
-      		Serial.printf("[WiFi] IP: %s\n", WiFi.localIP().toString().c_str());
-      		break;
-    	default:
-      		break;
-  }
-}
+CommState commState = WAIT_FOR_START;
+CycleState cycleState = SEND_MOTOR_PULSES;
+
+void tcpSenderTask(void *pvParameters);
 
 void setup() {
-	delay(3000); // ESP Serial needs the delay to actually work in the setup
+	vTaskDelay(pdMS_TO_TICKS(3000)); // ESP32S3 Serial needs the delay to actually work in the setup
+
 	Serial.begin(115200); // DEBUG Serial
-	delay(100);
+	vTaskDelay(pdMS_TO_TICKS(100));
+
 	auxUartInit(); // Serial to Arduino Mega
-	delay(100);
+	vTaskDelay(pdMS_TO_TICKS(100));
 
 	// RC-Receiver pins
 	pinMode(ESP_STEERING_PWM_IN, INPUT);
 	pinMode(ESP_ESC_PWM_IN, INPUT);
 
-	// small wifi test
-	WiFi.begin(SSID, PASS);
-	Serial.print("Verbinde mit WLAN...");
-	while (WiFi.status() != WL_CONNECTED) {
-		delay(500);
-		Serial.print(".");
-	}
-	Serial.println("\n[WiFi] Verbunden!");
-	Serial.println(WiFi.localIP());
+	/*
+	* creating a queue so we can store our SensorData
+	* packets, so a seperate task can send them away
+	* over TCP - the task is handled by its own core,
+	* core 1
+	*/
+	packetQueue = xQueueCreate(1000, sizeof(SensorData));
+	xTaskCreatePinnedToCore(tcpSenderTask, "TCP Sender", 4096, NULL, 1, NULL, 1);
 
-	Serial.print("Verbinde mit Server ");
-	Serial.print(host);
-	Serial.print(":");
-	Serial.println(port);
-
-	if (client.connect(host, port)) {
-		Serial.println("✅ Verbindung erfolgreich!");
-		client.println("Hallo vom ESP32S3!");
-	} else {
-		Serial.println("❌ Verbindung fehlgeschlagen!");
-	}
+	//Connect to WiFi and TCPServer
+	connectToNetwork(SSID, PASS);
+	connectToServer(HOST, PORT);
 }
 
 /*
+* Sending Motor-Pulses to Arduino Mega over UART (auxUart),
+* then waiting for Arduino to send back the whole SensorData struct,
+* and finally send the received SensorData struct away to TCP Server
+* -  This cycle should repeat as fast as possible, in fixed timestamps
+*
 * 1. Wait for START_OF_COMM_BYTE
-* 2. Read Motor Pulses and send them to ESP
-* 3. Wait for incoming SensorData struct
-* 4. Send struct away over WiFi (ignore for now, just print to Serial)
+* 2. Read Motor Pulses and send them to Arduino MEGA
+* 3. Wait for incoming SensorData struct and read it
+* 4. Send struct away over WiFi (this happens outside loop via FreeRtos task)
 */
 void loop() {
-	static long lastTimeDebug = millis();
-	if (millis() - lastTimeDebug >= 50) {
-		Serial.println("Hello from Loop");
+	static SensorData motorData, sensorData;
 
-		// Send some debug data to TCP Server
-		if (client.connected()) {
-			client.print("ServoPulse(us): ");
-			client.println(pulseIn(ESP_STEERING_PWM_IN, HIGH, 25000));
-			client.print("EscPulse(us): ");
-			client.println(pulseIn(ESP_ESC_PWM_IN, HIGH, 25000));
+	switch (commState) {
+		case WAIT_FOR_START:
+			if (auxUart.available() && auxUart.read() == START_OF_COMM_BYTE) {
+				Serial.println("SoC...");
 
-		} else {
-			Serial.println("Client getrennt, versuche Reconnect...");
-			client.connect(host, port);
-		}
+				// clearing auxUart buf to ensure stable synchronization
+				while (auxUart.available()) auxUart.read();
 
-		lastTimeDebug = millis();
-	}
-	
-	// 1. Wait for START_OF_COMM_BYTE
-	if (auxUart.available() && auxUart.peek() == START_OF_COMM_BYTE) {
-		while (auxUart.available()) auxUart.read();
-		Serial.println("SoC byte received! Comm started");
+				// Start of Communication deteced, switch to RUNNING
+				cycleState = SEND_MOTOR_PULSES;
+				commState = RUNNING;
+			}
+			break;
 
-		while(true) {
-			// check for END_OF_COMM_BYTE
+		case RUNNING:
+			// First we need to check if the communication ended:
 			if (auxUart.available() && auxUart.peek() == END_OF_COMM_BYTE) {
 				auxUart.read();
-				Serial.println("EoC byte received! Comm stopped");
-				while (auxUart.available()) auxUart.read(); // clearing UART buffer
+				Serial.println("EoC...");
+				while (auxUart.available()) auxUart.read(); // reset uart buffer
+				commState = WAIT_FOR_START;
 				break;
 			}
 
-			// 2. Read and send Motor Pulses
-			unsigned long startTime = millis();
-			unsigned long servoPulseUS = pulseIn(ESP_STEERING_PWM_IN, HIGH, 25000); // 25ms max delay
-			unsigned long escPulseUS = pulseIn(ESP_ESC_PWM_IN, HIGH, 25000);
+			switch (cycleState) {
+				case SEND_MOTOR_PULSES:
+					Serial.println("Reading Motorpulses ...");
+					// reading RC-Receiver pins and sending the Signals to Arduino MEGA
+					motorData.escPulse = pulseIn(ESP_ESC_PWM_IN, HIGH, 25000);
+					motorData.servoPulse = pulseIn(ESP_STEERING_PWM_IN, HIGH, 25000);
+					Serial.print("ESC: ");
+					Serial.println(motorData.escPulse);
+					Serial.print("SERVO: ");
+					Serial.println(motorData.escPulse);
+					sendMotorDataToMega(&motorData);
+					Serial.println("Sent Motorpulses ...");
 
-			Serial.print("escPulse: ");
-			Serial.println(escPulseUS);
-			Serial.print("servoPulse: ");
-			Serial.println(servoPulseUS);
+					// switch to next state
+					cycleState = READ_SENSOR_DATA;
+					break;
 
-			SensorData motorData;
-			motorData.escPulse = escPulseUS;
-			motorData.servoPulse = servoPulseUS;
+				case READ_SENSOR_DATA:
+					//Serial.println("Fetching data from UART...");
+					if (readSensorFrame(sensorData)) {
+						sensorDataDebugPrint(sensorData);
+						cycleState = APPEND_DATA_TO_QUEUE;
+						Serial.println("Fetch successful ...");
+					}
+					break;
 
-			Serial.print("sizeof(SensorData): ");
-			Serial.println((unsigned long)sizeof(motorData));
-			
-			sendMotorDataToMega(&motorData);
-			unsigned long elapsedTime = millis() - startTime;
-			Serial.print("Sending took ");
-			Serial.print(elapsedTime);
-			Serial.println("ms.");
+				case APPEND_DATA_TO_QUEUE:
+					Serial.println("Appending data to queue ...");
+					xQueueSend(packetQueue, &sensorData, 0);
 
-			// 3. Wait for SensorData
-			while (auxUart.available() < SENSOR_FRAME_LENGTH) {
-				// TODO this loop is not really working for the end of comm, it will be stuck here
+					// switch to original state -> repeat cycle
+					cycleState = SEND_MOTOR_PULSES;
+					break;
 			}
+			break;
+	}
+}
 
-			SensorData sensorData;
-			auxUart.readBytes(reinterpret_cast<byte*>(&sensorData), sizeof(SensorData));
-			while (auxUart.available()) auxUart.read();
-
-			// 4. Send data to PC / print to terminal for now
-			sensorDataDebugPrint(sensorData);
+/**
+ * @brief Sends SensorData to TCP Server, operates on reserved CPU core
+ * 
+ * @param pvParameters NULL
+ */
+void tcpSenderTask(void *pvParameters) {
+	for (;;) {
+		SensorData packet;
+		if (xQueueReceive(packetQueue, &packet, portMAX_DELAY)) {
+			if (client.connected()) {
+				// Sending a SensorData packet to TCP server
+				client.write((uint8_t*)&packet, sizeof(packet));
+			}
+			else {
+				// If we are not connected to server, try reconnect
+				// since this task does not block the main loop, we
+				// can safely wait for the reconnect. the queue will
+				// buffer any incoming SensorData from loop.
+				client.connect(HOST, PORT);
+			}
 		}
 	}
 }
 
-// Printing the contents of a SensorData struct to the Serial for DEBUG purpose
-void sensorDataDebugPrint(SensorData& sensorData) {
-	Serial.print("sizeof(SensorData): ");
-	Serial.println((unsigned long)sizeof(sensorData));
-	Serial.print(F("id: ")); Serial.print(sensorData.packetNumber);
-	Serial.print(F(" vel: ")); Serial.print(sensorData.velocity, 2);
-	Serial.print(F(" bat: ")); Serial.print(sensorData.batteryVoltage, 2);
+// // 4. Send data to TCPServer
+			// sensorDataDebugPrint(sensorData);
+			// if (client.connected()) {
+			// 	client.print("ID: ");
+			// 	client.print(sensorData.packetNumber);
+			// 	client.print(", servo: ");
+			// 	client.print(pulseIn(ESP_STEERING_PWM_IN, HIGH, 25000));
+			// 	client.print(", esc: ");
+			// 	client.print(pulseIn(ESP_ESC_PWM_IN, HIGH, 25000));
+			// 	client.print(", speed: ");
+			// 	client.print(sensorData.velocity, 2);
+			// 	client.print(", vbat: ");
+			// 	client.print(sensorData.batteryVoltage, 2);
+			// 	client.print(", ld: ");
+			// 	client.print(sensorData.leftDistance, 2);
+			// 	client.print(", md: ");
+			// 	client.print(sensorData.middleDistance, 2);
+			// 	client.print(", rd: ");
+			// 	client.print(sensorData.rightDistance, 2);
+			// 	client.print(", ax: ");
+			// 	client.print(sensorData.ax, 2);
+			// 	client.print(", ay: ");
+			// 	client.print(sensorData.ay, 2);
+			// 	client.print(", az: ");
+			// 	client.print(sensorData.az, 2);
+			// 	client.print(", gx: ");
+			// 	client.print(sensorData.gx, 2);
+			// 	client.print(", gy: ");
+			// 	client.print(sensorData.gy, 2);
+			// 	client.print(", gz: ");
+			// 	client.println(sensorData.gz, 2);
 
-	Serial.print(F(" | dist L/M/R: "));
-	Serial.print(sensorData.leftDistance, 2); Serial.print(" / ");
-	Serial.print(sensorData.middleDistance, 2); Serial.print(" / ");
-	Serial.print(sensorData.rightDistance, 2);
-
-	Serial.print(F(" | acc: "));
-	Serial.print(sensorData.ax, 2); Serial.print(" ");
-	Serial.print(sensorData.ay, 2); Serial.print(" ");
-	Serial.print(sensorData.az, 2);
-
-	Serial.print(F(" | gyro: "));
-	Serial.print(sensorData.gx, 2); Serial.print(" ");
-	Serial.print(sensorData.gy, 2); Serial.print(" ");
-	Serial.print(sensorData.gz, 2);
-
-	Serial.print(F(" | servo: "));
-	Serial.print(sensorData.servoPulse);
-	Serial.print(F(" esc: "));
-	Serial.println(sensorData.escPulse);
-}
+			// } else {
+			// 	Serial.println("Client getrennt, versuche Reconnect...");
+			// 	client.connect(HOST, PORT);
+			// }

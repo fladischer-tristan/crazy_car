@@ -5,11 +5,12 @@
 #include "Types.hpp"
 
 constexpr unsigned long BAUD = 115200; // UART3 Baudrate
-constexpr uint8_t START_OF_COMM_BYTE = 0xAA;
-constexpr uint8_t END_OF_COMM_BYTE = 0x55;
+constexpr uint8_t START_OF_COMM_BYTE = 0x53; // 'S'
+constexpr uint8_t END_OF_COMM_BYTE = 0x45; // 'E'
 
 void uart3Init();
 void sendSensorDataToEsp(SensorData* data);
+void clearUart3Buffer();
 
 /**
  * @brief takes pointer to a sensor-value, casts it to

@@ -18,6 +18,7 @@ void sendSensorDataToEsp(SensorData* data) {
     */
 
     // transmitt each primitive in binary format
+    sendValue(&data->startByte);
     sendValue(&data->packetNumber);
     sendValue(&data->velocity);
     sendValue(&data->batteryVoltage);
@@ -32,4 +33,9 @@ void sendSensorDataToEsp(SensorData* data) {
     sendValue(&data->gz);
     sendValue(&data->servoPulse);
     sendValue(&data->escPulse);
+    sendValue(&data->stopByte);
+}
+
+void clearUart3Buffer() {
+    while (Serial3.available()) Serial3.read();
 }

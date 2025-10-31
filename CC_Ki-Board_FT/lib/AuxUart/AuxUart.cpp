@@ -13,6 +13,7 @@ void auxUartInit() {
  */
 void sendMotorDataToMega(SensorData* data) {
     // transmitt each primitive in binary format
+    sendValue(&data->startByte);
     sendValue(&data->packetNumber);
     sendValue(&data->velocity);
     sendValue(&data->batteryVoltage);
@@ -27,4 +28,42 @@ void sendMotorDataToMega(SensorData* data) {
     sendValue(&data->gz);
     sendValue(&data->servoPulse);
     sendValue(&data->escPulse);
+    sendValue(&data->stopByte);
+}
+
+
+// returns true and stores sensor frame in 'out'
+bool readSensorFrame(SensorData &out) {
+    static uint8_t buffer[sizeof(SensorData)];
+    static uint8_t index = 0;
+
+    while (auxUart.available()) {
+        uint8_t b = auxUart.read();
+
+        // Warte auf Start-Byte
+        if (index == 0) {
+            if (b != START_OF_FRAME_BYTE) {
+                continue;
+            }
+            buffer[index++] = b;
+            continue;
+        }
+
+        // Byte ins Buffer legen
+        buffer[index++] = b;
+
+        // Wenn Buffer voll ist
+        if (index >= sizeof(SensorData)) {
+            if (buffer[sizeof(SensorData) - 1] == END_OF_FRAME_BYTE) {
+                memcpy(&out, buffer, sizeof(SensorData));
+                index = 0;
+                while(auxUart.available()) auxUart.read();
+                return true; // Frame vollständig!
+            } else {
+                // Falsches Ende -> Reset
+                index = 0;
+            }
+        }
+    }
+    return false; // Noch nicht vollständig
 }

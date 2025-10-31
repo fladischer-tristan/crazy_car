@@ -1,11 +1,24 @@
+/**
+ * @file main.cpp
+ * @author Tristan Fladischer
+ * @brief CrazyCar Training-data collection program
+ * @version 0.1
+ * @date 2025-10-29
+ * 
+ * @copyright Copyright (c) 2025
+ * 
+ */
+
 #include <Arduino.h>
 #include <Servo.h>
 #include "AuxUart.hpp"
 #include "Sensors.hpp"
 #include "Types.hpp"
+#include "Debug.hpp"
 
-constexpr uint16_t SAMPLE_RATE = 65; // sensor sample rate in ms - 40 should be fast enough
-const byte SENSOR_FRAME_LENGTH = sizeof(SensorData);
+constexpr uint16_t SAMPLE_RATE = 100; // data sample time in ms
+
+const uint8_t SENSOR_FRAME_LENGTH = sizeof(SensorData); // length of each UART packet
 
 // physical buttons - negative logic
 constexpr uint8_t STARTBUTTON = 12;
@@ -15,6 +28,10 @@ constexpr uint8_t STOPBUTTON = 13;
 constexpr uint8_t SERVO_PIN = 5; 
 constexpr uint8_t ESC_PIN = 2;
 
+/*
+* MAX/MIN allowed values for our Motors in microseconds
+* these values have been measured using an RC-Receiver
+*/
 const uint32_t ESC_PULSE_MIN = 1011;
 const uint32_t ESC_PULSE_MAX = 1923;
 const uint32_t SERVO_PULSE_MIN = 1011;
@@ -24,24 +41,22 @@ unsigned long packetCounter = 0; // used to add identifier to each SensorData st
 unsigned long lastTime = 0;
 volatile long hallPulseCount = 0;
 
-Servo steeringServo;
-Servo esc; // electronic speed control (with brushless dc motor)
-
-// Protyping ISRs
-void onHallPulse();
-void sensorDataDebugPrint(SensorData& sensorData);
-
-enum RunMode {
-	START,
-	STOP
-};
-
+// runMode enum used for loop logic
+enum RunMode {START, STOP};
 RunMode runMode = STOP;
+
+// Motor objects
+Servo steeringServo;
+Servo esc;
+
+// Protyping ISR
+void onHallPulse();
 
 void setup() {
 	Serial.begin(115200); // DEBUG Serial
-	uart3Init();
+	uart3Init(); // start Serial3
 	sensorInit();
+
 
 	steeringServo.attach(SERVO_PIN);
 	esc.attach(ESC_PIN);
@@ -54,17 +69,25 @@ void setup() {
 
 void loop() {
 	unsigned long now = millis();
+	static unsigned long lastStartPressed = 0;
 
-	// Setting runMode based on Buttons
-	// Polling -> Pins do not support interrupts
+	/*
+	* Polling the two pyhsical buttons and setting our runMode variable
+	* when runMode is active, 
+	*/
 	if (digitalRead(STARTBUTTON) == LOW) {
-		runMode = START;
-		Serial3.write(START_OF_COMM_BYTE); // StartOfCommunication ('S')
+		// debouncing - caused problems on esp side since SoC byte was sent twice
+		if ((millis() - lastStartPressed) >= 500) {
+			runMode = START;
+			Serial3.write(START_OF_COMM_BYTE); // StartOfCommunication ('S')
+		}
+		lastStartPressed = millis();
 	}
 	else {
 		if (digitalRead(STOPBUTTON) == LOW) {
 			runMode = STOP;
 			Serial3.write(END_OF_COMM_BYTE); // EndOfCommunication ('E')
+			packetCounter = 0;
 		
 			while (Serial3.available()) Serial3.read(); // clearing UART buffer
 		}
@@ -72,7 +95,7 @@ void loop() {
 
 	/*
 	* RUNMODE
-	* 1. Initiate UART comm with ESP32 - already happens via polling
+	* 1. Initiate UART comm with ESP32
 	* 2. Wait for incoming MotorPulses (SensorData struct)
 	* 3. Feed MotorPulses to our Motors
 	* 4. Send back a SensorData struct with all Sensor data + Motorpulses + Identifier
@@ -84,7 +107,7 @@ void loop() {
 			// 2. Wait for incoming MotorPulses (SensorData struct)
 			while (Serial3.available() < SENSOR_FRAME_LENGTH) 
 			{
-
+				//Serial.println("Hello World! i am going crazy");
 			}
 			
 			// 3. Feed MotorPulses to our Motors
@@ -149,33 +172,4 @@ void onHallPulse() {
 	else {
 		hallPulseCount--;
 	}
-}
-
-// Printing the contents of a SensorData struct to the Serial for DEBUG purpose
-void sensorDataDebugPrint(SensorData& sensorData) {
-	Serial.print("sizeof(SensorData): ");
-	Serial.println((unsigned long)sizeof(sensorData));
-	Serial.print(F("id: ")); Serial.print(sensorData.packetNumber);
-	Serial.print(F(" vel: ")); Serial.print(sensorData.velocity, 2);
-	Serial.print(F(" bat: ")); Serial.print(sensorData.batteryVoltage, 2);
-
-	Serial.print(F(" | dist L/M/R: "));
-	Serial.print(sensorData.leftDistance, 2); Serial.print(" / ");
-	Serial.print(sensorData.middleDistance, 2); Serial.print(" / ");
-	Serial.print(sensorData.rightDistance, 2);
-
-	Serial.print(F(" | acc: "));
-	Serial.print(sensorData.ax, 2); Serial.print(" ");
-	Serial.print(sensorData.ay, 2); Serial.print(" ");
-	Serial.print(sensorData.az, 2);
-
-	Serial.print(F(" | gyro: "));
-	Serial.print(sensorData.gx, 2); Serial.print(" ");
-	Serial.print(sensorData.gy, 2); Serial.print(" ");
-	Serial.print(sensorData.gz, 2);
-
-	Serial.print(F(" | servo: "));
-	Serial.print(sensorData.servoPulse);
-	Serial.print(F(" esc: "));
-	Serial.println(sensorData.escPulse);
 }
