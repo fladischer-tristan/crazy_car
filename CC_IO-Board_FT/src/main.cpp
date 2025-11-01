@@ -107,7 +107,7 @@ void loop() {
 			// 2. Wait for incoming MotorPulses (SensorData struct)
 			while (Serial3.available() < SENSOR_FRAME_LENGTH) 
 			{
-				//Serial.println("Hello World! i am going crazy");
+				
 			}
 			
 			// 3. Feed MotorPulses to our Motors

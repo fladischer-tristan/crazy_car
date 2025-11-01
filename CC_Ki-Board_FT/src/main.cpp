@@ -159,10 +159,13 @@ void loop() {
 void tcpSenderTask(void *pvParameters) {
 	for (;;) {
 		SensorData packet;
-		if (xQueueReceive(packetQueue, &packet, portMAX_DELAY)) {
+		Serial.println("Hello from Queue Task");
+		if (xQueueReceive(packetQueue, &packet, 0)) {
 			if (client.connected()) {
+				Serial.println("Sending Packet");
 				// Sending a SensorData packet to TCP server
 				client.write((uint8_t*)&packet, sizeof(packet));
+				vTaskDelay(10 / portTICK_PERIOD_MS);
 			}
 			else {
 				// If we are not connected to server, try reconnect
@@ -170,7 +173,10 @@ void tcpSenderTask(void *pvParameters) {
 				// can safely wait for the reconnect. the queue will
 				// buffer any incoming SensorData from loop.
 				client.connect(HOST, PORT);
+				vTaskDelay(1000 / portTICK_PERIOD_MS);
 			}
+		} else {
+			vTaskDelay(5 / portTICK_PERIOD_MS);
 		}
 	}
 }
