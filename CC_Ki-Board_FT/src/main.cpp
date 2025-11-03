@@ -18,16 +18,16 @@
 #include "WifiUtils.hpp"
 #include "Debug.hpp"
 
-// ESP32S3 Pinout
-#define ESP_S2 D0
-#define ESP_S3 D1
-#define ESP_S4 D2
-#define ESP_NEO_PIXEL D3
-#define ESP_SDA D4
-#define ESP_SCL D5
-#define ESP_STEERING_PWM_IN D10
-#define ESP_ESC_PWM_IN D9
-#define ESP_S1 D8
+// ESP32S3 Pins
+constexpr uint8_t ESP_S2 = D0;
+constexpr uint8_t ESP_S3 = D1;
+constexpr uint8_t ESP_S4 = D2;
+constexpr uint8_t ESP_NEO_PIXEL = D3;
+constexpr uint8_t ESP_SDA = D4;
+constexpr uint8_t ESP_SCL = D5;
+constexpr uint8_t ESP_STEERING_PWM_IN = D10;
+constexpr uint8_t ESP_ESC_PWM_IN = D9;
+constexpr uint8_t ESP_S1 = D8;
 
 // TCP Server details
 const char* HOST = "192.168.8.106"; 
@@ -36,16 +36,14 @@ const uint16_t PORT = 5000;
 // length of UART packet
 const byte SENSOR_FRAME_LENGTH = sizeof(SensorData);
 
-// Queue and TCP task
-QueueHandle_t packetQueue;
-
 // enums for our control logic (2 state machines)
 enum CommState {WAIT_FOR_START, RUNNING};
 enum CycleState {SEND_MOTOR_PULSES, READ_SENSOR_DATA, APPEND_DATA_TO_QUEUE};
-
 CommState commState = WAIT_FOR_START;
 CycleState cycleState = SEND_MOTOR_PULSES;
 
+// FreeRTOS Queue and TCP task
+QueueHandle_t packetQueue;
 void tcpSenderTask(void *pvParameters);
 
 void setup() {
@@ -62,15 +60,15 @@ void setup() {
 	pinMode(ESP_ESC_PWM_IN, INPUT);
 
 	/*
-	* creating a queue so we can store our SensorData
-	* packets, so a seperate task can send them away
-	* over TCP - the task is handled by its own core,
-	* core 1
+	* creating a queue for out SensorData structs, so
+	* that a seperate task can send them away over TCP
+	* - the task is handled by a core asynchronously
 	*/
-	packetQueue = xQueueCreate(1000, sizeof(SensorData));
+	packetQueue = xQueueCreate(1000, sizeof(SensorData)); // 1000 structs space (58kb) simply because we can afford it
 	xTaskCreatePinnedToCore(tcpSenderTask, "TCP Sender", 4096, NULL, 1, NULL, 1);
 
-	//Connect to WiFi and TCPServer
+	// Connect to WiFi and TCPServer
+	// SSID and PASS come from 'src/secrets.hpp'. since you don't see the file, just declare the variables somewhere
 	connectToNetwork(SSID, PASS);
 	connectToServer(HOST, PORT);
 }
@@ -79,7 +77,7 @@ void setup() {
 * Sending Motor-Pulses to Arduino Mega over UART (auxUart),
 * then waiting for Arduino to send back the whole SensorData struct,
 * and finally send the received SensorData struct away to TCP Server
-* -  This cycle should repeat as fast as possible, in fixed timestamps
+* - This cycle should repeat as fast as possible, in fixed timestamps
 *
 * 1. Wait for START_OF_COMM_BYTE
 * 2. Read Motor Pulses and send them to Arduino MEGA
@@ -89,7 +87,9 @@ void setup() {
 void loop() {
 	static SensorData motorData, sensorData;
 
+	// Master-StateMachine - handles only communication state (waiting, running)
 	switch (commState) {
+		// here we want to wait for the START_OF_COMM_BYTE
 		case WAIT_FOR_START:
 			if (auxUart.available() && auxUart.read() == START_OF_COMM_BYTE) {
 				Serial.println("SoC...");
@@ -102,7 +102,8 @@ void loop() {
 				commState = RUNNING;
 			}
 			break;
-
+		
+		// Communication is underway:
 		case RUNNING:
 			// First we need to check if the communication ended:
 			if (auxUart.available() && auxUart.peek() == END_OF_COMM_BYTE) {
@@ -113,6 +114,7 @@ void loop() {
 				break;
 			}
 
+			// Secondary StateMachine - Controls details of communication
 			switch (cycleState) {
 				case SEND_MOTOR_PULSES:
 					Serial.println("Reading Motorpulses ...");

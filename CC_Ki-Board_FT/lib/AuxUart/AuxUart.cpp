@@ -1,3 +1,14 @@
+/**
+ * @file AuxUart.hpp
+ * @author Tristan Fladischer
+ * @brief implementation of hardwareSerial1 (auxUart) functions for CrazyCar
+ * @version 0.1
+ * @date 2025-11-03
+ * 
+ * @copyright Copyright (c) 2025
+ * 
+ */
+
 #include "AuxUart.hpp"
 
 HardwareSerial auxUart(1);

@@ -1,3 +1,14 @@
+/**
+ * @file WifiUtils.cpp
+ * @author Tristan Fladischer
+ * @brief implementation of custom wifi functions for CrazyCar
+ * @version 0.1
+ * @date 2025-11-03
+ * 
+ * @copyright Copyright (c) 2025
+ * 
+ */
+
 #include "WifiUtils.hpp"
 
 WiFiClient client; // client object
