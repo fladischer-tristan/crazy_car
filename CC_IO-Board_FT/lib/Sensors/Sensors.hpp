@@ -1,3 +1,14 @@
+/**
+ * @file Sensors.hpp
+ * @author Tristan Fladischer
+ * @brief declaration of all functions related to Sensors of the CrazyCar
+ * @version 0.1
+ * @date 2025-11-03
+ * 
+ * @copyright Copyright (c) 2025
+ * 
+ */
+
 #pragma once
 
 #include <Arduino.h>

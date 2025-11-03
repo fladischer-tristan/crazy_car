@@ -53,10 +53,9 @@ Servo esc;
 void onHallPulse();
 
 void setup() {
-	Serial.begin(115200); // DEBUG Serial
-	uart3Init(); // start Serial3
+	Serial.begin(BAUD); // DEBUG Serial
+	Serial3.begin(BAUD);
 	sensorInit();
-
 
 	steeringServo.attach(SERVO_PIN);
 	esc.attach(ESC_PIN);

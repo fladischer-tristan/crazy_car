@@ -1,23 +1,29 @@
+/**
+ * @file AuxUart.hpp
+ * @author Tristan Fladischer
+ * @brief implementation of all functions related to Seria3 (auxUart) for the CrazyCar
+ * @version 0.1
+ * @date 2025-11-03
+ * 
+ * @copyright Copyright (c) 2025
+ * 
+ */
+
 #include "AuxUart.hpp"
 
-void uart3Init() {
-    Serial3.begin(BAUD);
-}
-
 /**
- * @brief Send SensorData struct over UART3 in binary
+ * @brief Transmitt SensorData struct over Serial3 in binary (Serial.write())
  * 
- * @param data SensorData struct - holds all data from sensor measurements
+ * @param data pointer to SensorData struct - holds all data from sensor measurements
  */
 void sendSensorDataToEsp(SensorData* data) {
     /*
-    * NOTE
-    * Currently, we do not need SoF or EoF bytes for
-    * each UART packet, since the packages will be
-    * transmitted over hamming-code.
+    * Transmitting each sensor Value in binary
+    * sendValue() casts each value into a byte pointer,
+    * so that Serial3 can send over all datatypes in the
+    * same way.
     */
 
-    // transmitt each primitive in binary format
     sendValue(&data->startByte);
     sendValue(&data->packetNumber);
     sendValue(&data->velocity);
@@ -36,6 +42,10 @@ void sendSensorDataToEsp(SensorData* data) {
     sendValue(&data->stopByte);
 }
 
+/**
+ * @brief Empties the Serial3 buffer
+ * 
+ */
 void clearUart3Buffer() {
     while (Serial3.available()) Serial3.read();
 }

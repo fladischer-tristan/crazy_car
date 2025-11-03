@@ -1,6 +1,20 @@
+/**
+ * @file Sensors.cpp
+ * @author Tristan Fladischer
+ * @brief implementation of all functions related to Sensors of the CrazyCar
+ * @version 0.1
+ * @date 2025-11-03
+ * 
+ * @copyright Copyright (c) 2025
+ * 
+ */
+
 #include "Sensors.hpp"
 
-
+/**
+ * @brief Initializing I2C bus, setting pinModes and reference Voltage
+ * 
+ */
 void sensorInit() {
     Wire.begin();
     pinMode(HALL_SENSOR_1_PIN, INPUT_PULLUP);
@@ -8,13 +22,18 @@ void sensorInit() {
     analogReference(INTERNAL2V56);
 }
 
-// Converts ATMEGA2560 ADC Value (0 - 2^10-1) to Voltage
+/**
+ * @brief Converts digitalRead() value to analog Voltage Signal through RefVoltage (2.56V)
+ * 
+ * @param adc digitalRead() signal
+ * @return voltage
+ */
 float adcToVoltage(int adc) {
 	return ((float)adc * V_REF) / ADC_MAX;
 }
 
 /**
- * @brief calculates velocity of vehicle
+ * @brief calculates velocity of vehicle through 
  * 
  * @param pulseCount amount of hallsensor pulses detected
  * @return float - velocity in mm/s
@@ -24,7 +43,7 @@ float calculateVelocity(const int16_t pulseCount, const unsigned long sampleRate
 }
 
 /**
- * @brief reads and normalizes acceleration and gyroscope values of MPU9250 (I2C)
+ * @brief reads & normalizes acceleration and gyroscope values of MPU9250 (I2C) and stores them in passed references
  * 
  * @param ax pass reference - acceleration in x dir
  * @param ay pass reference - acceleration in y dir
@@ -59,11 +78,11 @@ void readGyroSensor(float& ax, float& ay, float& az, float& gx, float& gy, float
 }
 
 /**
- * @brief reads all IR sensors and stores in references
+ * @brief reads all IR sensors and stores in passed references
  * 
- * @param leftDistance - reference var
- * @param middleDistance - reference var
- * @param rightDistance - reference var
+ * @param leftDistance pass reference - left distance
+ * @param middleDistance pass reference - middle distance
+ * @param rightDistance pass reference - right distance
  */
 void readDistanceSensors(float& leftDistance, float& middleDistance, float& rightDistance) {
     leftDistance = adcToVoltage(analogRead(LEFTSENSOR_PIN));
@@ -71,11 +90,20 @@ void readDistanceSensors(float& leftDistance, float& middleDistance, float& righ
     rightDistance = adcToVoltage(analogRead(RIGHTSENSOR_PIN));
 }
 
-// reads and returns battery voltage
+/**
+ * @brief Read vehicles battery voltage
+ * 
+ * @param batterVoltage pass reference - battery voltage
+ */
 void readBatteryVoltage(float& batterVoltage) {
     batterVoltage = adcToVoltage(analogRead(VBAT_PIN));
 }
 
+/**
+ * @brief Reads all the vehicle Sensors except HALL (which is done through ISR)
+ * 
+ * @param sensorData 
+ */
 void readAllSensorData(SensorData& sensorData) {
     readGyroSensor(
         sensorData.ax,
